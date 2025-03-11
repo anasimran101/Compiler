@@ -1,0 +1,17 @@
+Adadi Marqazi ()
+{
+    Adadi _num = 42 ::  /* Multi-line comment
+    Testing number initialization
+    */
+    Ashriya num_=-99.99E-5::
+    Ashriya n_umber=+7.25::
+    Mantiqi _flag=False ::
+    
+    Agar (_flag )
+        Adadi temp = 100 ::  // Single-line comment
+    
+    Wagarna  
+        Ashriya anotherNum = 3.14 ::  
+
+    Wapas 1::
+}
