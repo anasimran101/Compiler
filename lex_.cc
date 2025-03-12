@@ -9,18 +9,20 @@
 #include <functional>
 #include <cctype>
 
+#include <time.h>
+
 
 #define BUFFER_SIZE 25
 #define __EOF__ '\0'
 
-
+//[review] last space
 
 class LITERAL_TABLE {
-
+    std::unordered_map<std::string, int> table;
 };
 
 /*state to integer maping*/
-enum STATE {
+enum STATE : u_int8_t {
     ERROR_STATE,
     START,
     N1,
@@ -92,9 +94,9 @@ enum DATA_TYPE {
 };
 
 
-
-class TOKEN {
-    
+struct TOKEN {
+    size_t t_id;
+    TOKEN_CLASS t_class;
 };
 
 
@@ -103,26 +105,35 @@ struct SYMBOL_TABLE_ENTERY {
     TOKEN_CLASS t_class;
     DATA_TYPE t_type;
     int t_line_number;
+    int t_column_number;
 
     //lexeme is stored as key in hash map
 };
 
 class SYMBOL_TABLE {
-    std::unordered_map<std::string, TOKEN>  table;
+
+    std::unordered_map<std::string, SYMBOL_TABLE_ENTERY>  table;
 
 public:
+
 
 
 
 };
 
 class Transitions {
+
     STATE error_state = STATE::ERROR_STATE;
     std::unordered_map<char, STATE> transitions;
     std::vector<std::pair<std::function<bool(char)>, STATE>> transition_functions;
     static const std::set<char> valid_chars;
+
+    //std::unordered_map<STATE,std::map<char,bool>> advance;
+
 public:
-    STATE operator [] (char character) {
+
+STATE operator [] (char character) {
+
         if (transitions.find(character) == transitions.end()) {
             for (auto& f : transition_functions) {
                 if (f.first(character)) {
@@ -142,44 +153,52 @@ public:
         transition_functions.push_back(std::pair<std::function<bool(char)>, STATE>(func, STATE::ERROR_STATE));
         return transition_functions.back().second;
     }
+
     static bool isValidCharacter(char c) {
-        return isdigit(c) || isalpha(c) || isspace(c)||valid_chars.count(c) > 0;
-
+        return isdigit(c) || isalpha(c) || isspace(c)|| valid_chars.count(c) > 0;
     }
-
     
 };
 
 // [review] double quotes
 const std::set<char> Transitions::valid_chars {
     '(', ')', '{', '}', '[', ']', ':', '<', '>', '=', 
-    '+', '-', '!', '|', '%', '&', '*', '/'
+    '+', '-', '!', '|', '%', '&', '*', '/', '"'
 };
 
 class TRANSITION_TABLE 
 {
     std::unordered_map<STATE, Transitions> table;
     std::unordered_set<STATE> final_states 
-    {STATE::N_FINAL, STATE::O_FINAL,STATE::P_FINAL,STATE::I_FINAL};
-    //std::unordered_set<STATE> non_advance_state {};
+    {STATE::N_FINAL, STATE::O_FINAL,STATE::P_FINAL,STATE::I_FINAL,STATE::K_CHECK};
+
+   
 
     
-    
-
-    // [review] double quotes
-
-
-
+    std::unordered_set<STATE> not_advance = {
+        STATE::N1,
+        STATE::N_DECIMAL_N,
+        STATE::N_EXP_N,
+        STATE::I1,
+        STATE::I_UND,
+        STATE::O_LT,
+        STATE::O_GT,
+        STATE::O_ET,
+        STATE::O_ADD,
+        STATE::O_SUBTRACT
+    };
 public:
-
     Transitions& operator [] (STATE state) {
         return table[state];
     }
     bool isFinal(STATE s) {
         return final_states.count(s) > 0;
     }
-    bool advance(STATE s) {
-        return s != STATE::I_FINAL || s != STATE::K_CHECK;
+    bool advance(STATE previous_state, STATE new_state) {
+        if(!isFinal(new_state)) {
+            return true;
+        }
+        return not_advance.count(previous_state) == 0;
     }
     TOKEN_CLASS getTokenClass(STATE s) {
         switch (s)
@@ -202,8 +221,6 @@ private:
     char buffer[2][BUFFER_SIZE];
     int buffer_in_use;  // 0 or 1, to track active buffer
     int bp, fp; 
-    int bp_buffer;
-    int fp_buffer;
     int current_lexeme_size = 0;
     ssize_t current_buffer_size; 
 
@@ -252,14 +269,18 @@ public:
     }
 
     char peekNextCharacter() {
-        if(current_buffer_size == 0) {
+        if(current_buffer_size <= 0) {
             return __EOF__;
         }
         return buffer[buffer_in_use][fp];
     }
     bool advance() {
-        if (fp >= current_buffer_size) {
-            return loadBuffer();
+        if (fp >= current_buffer_size-1) {
+            if(loadBuffer()) {
+                current_lexeme_size++;
+                return true;
+            }
+            return false;
         }
         fp++;
         current_lexeme_size++;
@@ -275,26 +296,32 @@ public:
     bool advanceBp(){
         if(current_lexeme_size == 0) 
             return false;
-        bp = (bp + 1) % BUFFER_SIZE;
-        current_lexeme_size--;
+        bp = (++bp) % BUFFER_SIZE;
+        --current_lexeme_size;
         return true;
     }
 
-    std::string getLexeme() {
+    std::string peekLexeme() {
 
         if(current_lexeme_size == 0) return "l";
         std::string lexeme;
         int t_bp = bp;
-        if (bp + current_lexeme_size > BUFFER_SIZE ) {   // lexeme divided into 2 buffers
-            lexeme += std::string(buffer[1-buffer_in_use] + bp, buffer[1-buffer_in_use]+BUFFER_SIZE-1);
+        if (bp + current_lexeme_size >= BUFFER_SIZE ) {   // lexeme divided into 2 buffers
+            lexeme += std::string(buffer[1-buffer_in_use] + bp, buffer[1-buffer_in_use]+BUFFER_SIZE);
             t_bp = 0;
         }
-        lexeme += std::string(buffer[buffer_in_use]+t_bp, buffer[buffer_in_use] + fp-1);
-        bp = fp;
-        current_lexeme_size = 0;
+        lexeme += std::string(buffer[buffer_in_use]+t_bp, buffer[buffer_in_use] + fp);
+        
         
         return lexeme;
 
+    }
+
+    std::string popLexeme() {
+        std::string lexeme = BUFFER::peekLexeme();
+        bp = fp;
+        current_lexeme_size = 0;
+        return lexeme;
     }
 };
 
@@ -307,53 +334,55 @@ std::vector<TOKEN> Lexer
 {
     std::vector<TOKEN> tokens;
     char c;
-    STATE state = STATE::START;
-    STATE new_state = STATE::START;
+    STATE state;
+    STATE new_state;
+    bool pop_lexeme;
     while ( buffer.peekNextCharacter() != __EOF__) {
 
-        c = buffer.peekNextCharacter();
-        std::cout << getStateName(state) << " " << c << std::endl;
+        state = STATE::START;
         
-
-        new_state = transition_table[state][c];
-
-        if(state == STATE::ERROR_STATE){
-            //std::cout << getStateName(state) << " " << c << std::endl;
-            std::cerr << "\nerror\n";
-            state = STATE::START;
-            buffer.advance();
-            continue;
-        }
-        if (transition_table.isFinal(state) || state == STATE::K_CHECK) {
-            //if(transition_table.advance(state))
-            std::cout << getStateName(state) << " " << c << std::endl;
-            std::cout << buffer.getLexeme() << "|"<<std::endl;
-            buffer.advance();
-            if(isspace(c)){
-                buffer.advanceBp();
-            }
-            //skip space
+        while(!transition_table.isFinal(state) && state != STATE::ERROR_STATE){
             c = buffer.peekNextCharacter();
-            if(isspace(c)){
+
+            new_state = transition_table[state][c];
+
+            if(transition_table.advance(state,new_state) )
+                buffer.advance();
+
+            state = new_state;
+        }
+
+        pop_lexeme = true;
+        if(state == STATE::K_CHECK) {
+
+        }
+        else {
+            if (transition_table.isFinal(state)) {
+                
+            }
+        }
+        
+        if(pop_lexeme) {
+
+            //[review]
+            buffer.popLexeme();
+            if(isspace(buffer.peekNextCharacter())) {    //skip space
                 buffer.advance();
                 buffer.advanceBp();
             }
-            //push in st if not there already st
-            
-            state = STATE::START;
         }
-        else {
-            buffer.advance();
-        }
-        state = new_state;
+        
+        
+
+        //push in st if not there already st
+
     }
 
-
+    return tokens;
 }
 
 int Scanner(const char *filename) {
     
-    //[review] remove initial whitespace
 
     int fd = open(filename, O_RDONLY);
     if (fd == -1) {
@@ -380,6 +409,8 @@ int Scanner(const char *filename) {
     int out_file_index = 0;
     bool lastStar = false;
     bool lastWhitespace = false;
+    bool last_space = false;
+    bool last_comment = false;
 
     while ((bytes_read = read(fd, buffer, buffer_size)) > 0) {
 
@@ -410,7 +441,10 @@ int Scanner(const char *filename) {
                         remove_multi_line = false;
                         lastStar = false;
                         i++;            // Skip '/'
-                        //out_buffer[out_file_index++] = '\n';
+
+                        if(!last_space)                         //replace with white space
+                            out_buffer[out_file_index++] = ' ';
+                        last_comment=true;
                         break;
                     }
                     lastStar = buffer[i] == '*'; 
@@ -426,8 +460,10 @@ int Scanner(const char *filename) {
                 }
                 if ( i < bytes_read)
                 {
+                    if(!last_space)
+                        out_buffer[out_file_index++] = ' ';
                     remove_one_line = false;
-                    //out_buffer[out_file_index++] = '\n';
+                    last_comment=true;
                 }
                 continue;
             }
@@ -446,6 +482,7 @@ int Scanner(const char *filename) {
                 } 
                 if(i < bytes_read) {
                     lastWhitespace = false;
+                    last_space = true;
                     i--;
                 }
 
@@ -453,12 +490,14 @@ int Scanner(const char *filename) {
             }
 
             if (isspace(buffer[i])) {
-                out_buffer[out_file_index++] = buffer[i];
+                if(!last_comment)
+                    out_buffer[out_file_index++] = buffer[i];
                 lastWhitespace = true;
                 continue;
                 
             }
-            
+
+            last_space=last_comment=false;
 
             out_buffer[out_file_index++] = buffer[i];
             
@@ -478,7 +517,9 @@ int Scanner(const char *filename) {
 
 
 bool loadTransitions(TRANSITION_TABLE& transition_table) {
+
     transition_table[STATE::START]([](char c) { return isdigit(c); }) = STATE::N1;
+    transition_table[STATE::START]([](char c) { return isspace(c); }) = STATE::P_FINAL;
     transition_table[STATE::START]('_') = STATE::I_UND;
     transition_table[STATE::START]([](char c) { return isalpha(c); }) = STATE::I1;
     transition_table[STATE::START]('[') = STATE::P_FINAL;
@@ -501,8 +542,7 @@ bool loadTransitions(TRANSITION_TABLE& transition_table) {
     transition_table[STATE::START]('/') = STATE::O_FINAL;
 
     // [review] string quotes
-    transition_table[STATE::START]('“') = STATE::O_FINAL;
-    transition_table[STATE::START]('”') = STATE::O_FINAL;
+    transition_table[STATE::START]('"') = STATE::O_FINAL;
 
     transition_table[STATE::N1]([](char c) { return isdigit(c); }) = STATE::N1;
     transition_table[STATE::N1]('.') = STATE::N_DECIMAL;
@@ -555,8 +595,9 @@ bool loadTransitions(TRANSITION_TABLE& transition_table) {
 
 int main() {
 
+
+    time_t start_time = time(NULL); 
     const char* input_filename = "_src.ucc";
-    double a = +123.322E+123;
     std::unordered_set<std::string> keywords = {
         "asm", "Wagarna", "new", "this", "auto", "enum", "operator", "throw", "Mantiqi",
         "explicit", "private", "True", "break", "export", "protected", "try", "case", 
@@ -577,23 +618,18 @@ int main() {
 
 
     Scanner(input_filename);
+
     BUFFER buffer((std::string(input_filename) + ".Meow").c_str());
 
+    
+    time_t scanner_time = time(NULL) - start_time;
+    std::cout << scanner_time << std::endl;
     Lexer(buffer,symbol_table,transition_table, keywords );
+    std::cout << time(NULL) - start_time - scanner_time << std::endl;
 
 
 
-    // int i = 0;
-    // while(buffer.peekNextCharacter() != __EOF__) {
-    //     ++i;
-    //     char c = buffer.peekNextCharacter();
-    //     if(i == 3) {
-    //         i = 0;
-    //         std::cout << buffer.getLexeme() << std::endl;
-    //     }
-    //     buffer.advance();
-
-    // }
+    
     
 
     
