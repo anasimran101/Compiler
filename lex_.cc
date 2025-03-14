@@ -9,17 +9,17 @@
 #include <functional>
 #include <cctype>
 
-#include <time.h>
+#include <ctime>
 
 
 #define BUFFER_SIZE 25
 #define __EOF__ '\0'
 
+#define ROLL_NO 22L-6895
+
 //[review] last space
 
-class LITERAL_TABLE {
-    std::unordered_map<std::string, int> table;
-};
+
 
 /*state to integer maping*/
 enum STATE : u_int8_t {
@@ -46,7 +46,25 @@ enum STATE : u_int8_t {
     P_COLON,
     P_FINAL,
     O_FINAL,
-    K_CHECK
+    SL1,
+    SL_FINAL,
+    K_CHECK,
+    K_OUTPUT,
+    K_OUTPUT_SUB,
+    K_INPUT_LT,
+    K_INPUT,
+    K_FINAL
+};
+
+
+enum TOKEN_CLASS {
+    ERROR,
+    Keyword,
+    Operator,
+    Identifier,
+    Number,
+    String_Literal,
+    Punctuation
 };
 
 const char* getStateName(STATE state) {
@@ -79,15 +97,6 @@ const char* getStateName(STATE state) {
     }
 }
 
-enum TOKEN_CLASS {
-    ERROR,
-    Keyword,
-    Operator,
-    Identifier,
-    Number,
-    String_Literal,
-    Punctuation
-};
 
 enum DATA_TYPE {
     T_DEFAULT
@@ -96,43 +105,99 @@ enum DATA_TYPE {
 
 struct TOKEN {
     size_t t_id;
+    std::string t_lexeme;
     TOKEN_CLASS t_class;
+    int line_number;
+    int column_number;
+
+    TOKEN(size_t id = 0, std::string* lexeme = nullptr, TOKEN_CLASS tclass = TOKEN_CLASS::ERROR, int line = 0, int column = 0)
+        : t_id(id), t_lexeme(lexeme), t_class(tclass), line_number(line), column_number(column) {}
 };
 
+struct SYMBOL_TABLE_ENTRY {
+    TOKEN_CLASS token_class;
+    std::string lexeme;
+    DATA_TYPE datatype;
+    size_t memory_location;
 
-struct SYMBOL_TABLE_ENTERY {
-    size_t t_id;
-    TOKEN_CLASS t_class;
-    DATA_TYPE t_type;
-    int t_line_number;
-    int t_column_number;
-
-    //lexeme is stored as key in hash map
+    SYMBOL_TABLE_ENTRY(TOKEN_CLASS _class = TOKEN_CLASS::ERROR, const std::string& _lexeme = {}, DATA_TYPE _datatype = DATA_TYPE::T_DEFAULT)
+        : token_class(_class), lexeme(_lexeme), datatype(_datatype) {}
 };
 
 class SYMBOL_TABLE {
-
-    std::unordered_map<std::string, SYMBOL_TABLE_ENTERY>  table;
+    std::unordered_map<std::string, size_t> lexeme_to_index;  // Map lexeme to index in vector
+    std::vector<SYMBOL_TABLE_ENTRY> entries;  // Stores symbol table entries
 
 public:
+    SYMBOL_TABLE_ENTRY* find(const std::string& lexeme) {
+        auto it = lexeme_to_index.find(lexeme);
+        if (it != lexeme_to_index.end()) {
+            return &entries[it->second];
+        }
+        return nullptr;
+    }
 
-
-
-
+    size_t insert(const std::string& lexeme, SYMBOL_TABLE_ENTRY entry) {
+        auto it = lexeme_to_index.find(lexeme);
+        if (it != lexeme_to_index.end()) {
+            return it->second;
+        }
+        
+        size_t index = entries.size();
+        entries.push_back(entry);
+        lexeme_to_index[lexeme] = index;
+        return index;
+    }
 };
+
+struct LITERAL_TABLE_ENTRY {
+    std::string value;
+    DATA_TYPE datatype;
+
+    LITERAL_TABLE_ENTRY(const std::string& _value = "", DATA_TYPE _datatype = DATA_TYPE::T_DEFAULT)
+        : value(_value), datatype(_datatype) {}
+};
+
+class LITERAL_TABLE {
+    std::unordered_map<std::string, size_t> literal_to_index;  // Map literal to index in vector
+    std::vector<LITERAL_TABLE_ENTRY> entries;  // Stores literal table entries
+
+public:
+    LITERAL_TABLE_ENTRY* find(const std::string& value) {
+        auto it = literal_to_index.find(value);
+        if (it != literal_to_index.end()) {
+            return &entries[it->second];
+        }
+        return nullptr;
+    }
+
+    size_t insert(const std::string& value, DATA_TYPE datatype) {
+        auto it = literal_to_index.find(value);
+        if (it != literal_to_index.end()) {
+            return it->second;
+        }
+        
+        size_t index = entries.size();
+        entries.emplace_back(value, datatype);
+        literal_to_index[value] = index;
+        return index;
+    }
+};
+
 
 class Transitions {
 
     STATE error_state = STATE::ERROR_STATE;
     std::unordered_map<char, STATE> transitions;
+    std::unordered_map<std::string, STATE> keyword_transitions;
     std::vector<std::pair<std::function<bool(char)>, STATE>> transition_functions;
     static const std::set<char> valid_chars;
 
-    //std::unordered_map<STATE,std::map<char,bool>> advance;
+    
 
 public:
 
-STATE operator [] (char character) {
+    STATE operator [] (char character) {
 
         if (transitions.find(character) == transitions.end()) {
             for (auto& f : transition_functions) {
@@ -145,8 +210,19 @@ STATE operator [] (char character) {
         return transitions[character];
     }
 
+    STATE operator [] (std::string& keyword) {
+        if (keyword_transitions.find(keyword) == keyword_transitions.end()) {
+            return error_state;
+        }
+        return keyword_transitions[keyword];
+    }
+
     STATE& operator () (char character) {
         return transitions[character];
+    }
+
+    STATE& operator () (std::string keyword) {
+        return keyword_transitions[keyword];
     }
 
     STATE& operator () (const std::function<bool(char)> func) {
@@ -170,11 +246,16 @@ class TRANSITION_TABLE
 {
     std::unordered_map<STATE, Transitions> table;
     std::unordered_set<STATE> final_states 
-    {STATE::N_FINAL, STATE::O_FINAL,STATE::P_FINAL,STATE::I_FINAL,STATE::K_CHECK};
+    {
+        STATE::N_FINAL, 
+        STATE::O_FINAL,
+        STATE::P_FINAL,
+        STATE::I_FINAL,
+        STATE::K_FINAL,
+        STATE::K_CHECK,
+        STATE::SL_FINAL,
+    };
 
-   
-
-    
     std::unordered_set<STATE> not_advance = {
         STATE::N1,
         STATE::N_DECIMAL_N,
@@ -187,6 +268,7 @@ class TRANSITION_TABLE
         STATE::O_ADD,
         STATE::O_SUBTRACT
     };
+
 public:
     Transitions& operator [] (STATE state) {
         return table[state];
@@ -201,24 +283,29 @@ public:
         return not_advance.count(previous_state) == 0;
     }
     TOKEN_CLASS getTokenClass(STATE s) {
-        switch (s)
-        {
-        case STATE::O_FINAL:
-            return TOKEN_CLASS::Operator;
-            break;
-        
-        default:
-            break;
-        };
+        switch (s) {
+            case STATE::N_FINAL:
+                return TOKEN_CLASS::Number;     
+            case STATE::O_FINAL:
+                return TOKEN_CLASS::Operator;    
+            case STATE::P_FINAL:
+                return TOKEN_CLASS::Punctuation;  
+            case STATE::I_FINAL:
+                return TOKEN_CLASS::Identifier;   
+            case STATE::K_CHECK:
+                return TOKEN_CLASS::Keyword;      
+
+            default:
+                return TOKEN_CLASS::ERROR;      
+        }
     }
+
 };
-
-
 
 class BUFFER {
 private:
     int in_file_descriptor;  
-    char buffer[2][BUFFER_SIZE];
+    char buffer[2][BUFFER_SIZE+1];
     int buffer_in_use;  // 0 or 1, to track active buffer
     int bp, fp; 
     int current_lexeme_size = 0;
@@ -230,15 +317,17 @@ private:
             std::cerr << "FD for input buffer not set\n";
             return false;
         }
+        bool last_size_zero = current_buffer_size == 0;
 
-        buffer_in_use = 1 - buffer_in_use; // Swap buffers (0,1)
-        current_buffer_size = read(in_file_descriptor, buffer[buffer_in_use], BUFFER_SIZE);
+        current_buffer_size = read(in_file_descriptor, buffer[1-buffer_in_use], BUFFER_SIZE);
         if (current_buffer_size == -1) {
             std::cerr << "unable to load buffer\n";
             return false;
         }
 
-        fp = 0; 
+        buffer_in_use = 1 - buffer_in_use; // Swap buffers (0,1)
+        fp = 0;
+        
         return current_buffer_size > 0;
     }
 
@@ -269,21 +358,30 @@ public:
     }
 
     char peekNextCharacter() {
-        if(current_buffer_size <= 0) {
+        if(fp >= current_buffer_size) 
             return __EOF__;
-        }
         return buffer[buffer_in_use][fp];
     }
     bool advance() {
+
+        if(fp >= current_buffer_size) {
+            return false;
+        }
+        current_lexeme_size++;
+
         if (fp >= current_buffer_size-1) {
+            if(current_buffer_size < BUFFER_SIZE){
+                fp = current_buffer_size;
+                return true;
+            }
             if(loadBuffer()) {
-                current_lexeme_size++;
+                
                 return true;
             }
             return false;
         }
         fp++;
-        current_lexeme_size++;
+
         if(current_lexeme_size >= BUFFER_SIZE) {
             std::cerr << "FATAL ERROR: lexeme buffer overflow" << std::endl;
             exit(1);
@@ -303,10 +401,10 @@ public:
 
     std::string peekLexeme() {
 
-        if(current_lexeme_size == 0) return "l";
+        if(bp == fp) return "l";
         std::string lexeme;
         int t_bp = bp;
-        if (bp + current_lexeme_size >= BUFFER_SIZE ) {   // lexeme divided into 2 buffers
+        if (bp + current_lexeme_size >= BUFFER_SIZE) {   // lexeme divided into 2 buffers
             lexeme += std::string(buffer[1-buffer_in_use] + bp, buffer[1-buffer_in_use]+BUFFER_SIZE);
             t_bp = 0;
         }
@@ -324,63 +422,204 @@ public:
         return lexeme;
     }
 };
+    
 
 
-std::vector<TOKEN> Lexer
-    (BUFFER& buffer, 
-    SYMBOL_TABLE& symbol_table, 
-    TRANSITION_TABLE& transition_table, 
-    std::unordered_set<std::string>& keywords) 
-{
-    std::vector<TOKEN> tokens;
-    char c;
-    STATE state;
-    STATE new_state;
-    bool pop_lexeme;
-    while ( buffer.peekNextCharacter() != __EOF__) {
+class Lexer {
+private:
+    BUFFER buffer;
+    SYMBOL_TABLE& symbol_table;
+    LITERAL_TABLE& literal_table;
+    TRANSITION_TABLE transition_table;
+    std::unordered_set<std::string>& keywords;
 
-        state = STATE::START;
-        
-        while(!transition_table.isFinal(state) && state != STATE::ERROR_STATE){
-            c = buffer.peekNextCharacter();
+    int last_token_line_no=0;
+    int last_token_column_number=0;
+    int current_token_lines=0;
+    int current_token_columns=0;
 
-            new_state = transition_table[state][c];
+    bool loadTransitions() {
+        transition_table[STATE::START]([](char c) { return isdigit(c); }) = STATE::N1;
+        transition_table[STATE::START]([](char c) { return isspace(c); }) = STATE::P_FINAL;
+        transition_table[STATE::START]('_') = STATE::I_UND;
+        transition_table[STATE::START]([](char c) { return isalpha(c); }) = STATE::I1;
+        transition_table[STATE::START]('[') = STATE::P_FINAL;
+        transition_table[STATE::START](']') = STATE::P_FINAL;
+        transition_table[STATE::START]('(') = STATE::P_FINAL;
+        transition_table[STATE::START](')') = STATE::P_FINAL;
+        transition_table[STATE::START]('{') = STATE::P_FINAL;
+        transition_table[STATE::START]('}') = STATE::P_FINAL;
+        transition_table[STATE::START](':') = STATE::P_COLON;
+        transition_table[STATE::START]('<') = STATE::O_LT;
+        transition_table[STATE::START]('>') = STATE::O_GT;
+        transition_table[STATE::START]('=') = STATE::O_ET;
+        transition_table[STATE::START]('+') = STATE::O_ADD;
+        transition_table[STATE::START]('-') = STATE::O_SUBTRACT;
+        transition_table[STATE::START]('!') = STATE::O_NOT;
+        transition_table[STATE::START]('|') = STATE::O_OR;
+        transition_table[STATE::START]('%') = STATE::O_FINAL;
+        transition_table[STATE::START]('&') = STATE::O_AND;
+        transition_table[STATE::START]('*') = STATE::O_FINAL;
+        transition_table[STATE::START]('/') = STATE::O_FINAL;
 
-            if(transition_table.advance(state,new_state) )
-                buffer.advance();
+        // [review] string quotes
+        transition_table[STATE::START]('"') = STATE::SL1;
+        transition_table[STATE::SL1]([](char c) { return (c >= 32 || c == '\t' || c == '\n' || c == '\r'); }) = STATE::SL1;;
+        transition_table[STATE::SL1]('"') = STATE::SL_FINAL;
 
-            state = new_state;
+
+        transition_table[STATE::N1]([](char c) { return isdigit(c); }) = STATE::N1;
+        transition_table[STATE::N1]('.') = STATE::N_DECIMAL;
+        transition_table[STATE::N1]('E') = STATE::N_EXP;
+
+        transition_table[STATE::N_DECIMAL]([](char c) { return isdigit(c); }) = STATE::N_DECIMAL_N;
+        transition_table[STATE::N_DECIMAL_N]([](char c) { return isdigit(c); }) = STATE::N_DECIMAL_N;
+        transition_table[STATE::N_DECIMAL_N]('E') = STATE::N_EXP;
+
+        transition_table[STATE::N_EXP]([](char c) { return isdigit(c); }) = STATE::N_EXP_N;
+        transition_table[STATE::N_EXP]('+') = STATE::N_EXP_ADD_SUB;
+        transition_table[STATE::N_EXP]('-') = STATE::N_EXP_ADD_SUB;
+        transition_table[STATE::N_EXP_ADD_SUB]([](char c) { return isdigit(c); }) = N_EXP_N;
+        transition_table[STATE::N_EXP_N]([](char c) { return isdigit(c); }) = STATE::N_EXP_N;
+
+        transition_table[STATE::I_UND]([](char c) { return isdigit(c); }) = STATE::I_UND;
+        transition_table[STATE::I_UND]([](char c) { return isalpha(c); }) = STATE::I_UND;
+        transition_table[STATE::I_UND]('-') = STATE::I_UND;
+        transition_table[STATE::I1]([](char c) { return isdigit(c); }) = STATE::I1;
+        transition_table[STATE::I1]([](char c) { return isalpha(c); }) = STATE::I1;
+        transition_table[STATE::I1]('_') = STATE::I_UND;
+
+        transition_table[STATE::P_COLON]('=') = STATE::O_FINAL;
+        transition_table[STATE::P_COLON](':') = STATE::P_FINAL;
+        transition_table[STATE::O_LT]('=') = STATE::O_FINAL;
+        transition_table[STATE::O_LT]('<') = STATE::O_FINAL;
+        transition_table[STATE::O_LT]('>') = STATE::O_FINAL;
+        transition_table[STATE::O_GT]('=') = STATE::O_FINAL;
+        transition_table[STATE::O_GT]('>') = STATE::O_FINAL;
+        transition_table[STATE::O_ET]('=') = STATE::O_FINAL;
+        transition_table[STATE::O_ADD]('=') = STATE::O_FINAL;
+        transition_table[STATE::O_ADD]('+') = STATE::O_FINAL;
+        transition_table[STATE::O_ADD]([](char c) {return isdigit(c);}) = STATE::N1;
+        transition_table[STATE::O_SUBTRACT]([](char c) {return isdigit(c);}) = STATE::N1;
+        transition_table[STATE::O_NOT]('=') = STATE::O_FINAL;
+        transition_table[STATE::O_OR]('|') = STATE::O_FINAL;
+        transition_table[STATE::O_AND]('&') = STATE::O_FINAL;
+
+
+        //others
+
+        transition_table[STATE::N1]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::N_FINAL;
+        transition_table[STATE::N_DECIMAL_N]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::N_FINAL;
+        transition_table[STATE::N_EXP_N]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::N_FINAL;
+        transition_table[STATE::I1]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::K_CHECK;
+        transition_table[STATE::I_UND]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::I_FINAL;
+        transition_table[STATE::O_LT]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::O_FINAL;
+        transition_table[STATE::O_GT]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::O_FINAL;
+        transition_table[STATE::O_ET]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::O_FINAL;
+        transition_table[STATE::O_ADD]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::O_FINAL;
+        transition_table[STATE::O_SUBTRACT]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::O_FINAL;
+    
+
+        //keywords
+        transition_table[STATE::I1]("output") = STATE::K_OUTPUT;
+        transition_table[STATE::I1]("input") = STATE::K_INPUT;
+        transition_table[STATE::K_INPUT]('<') = STATE::K_INPUT_LT;
+        transition_table[STATE::K_INPUT_LT]('-') = K_FINAL;
+        transition_table[STATE::K_OUTPUT]('-') = K_OUTPUT_SUB;
+        transition_table[STATE::K_OUTPUT_SUB]('>') = K_FINAL;
+
+        return true;
+    }
+
+    std::string getErrorStatement(STATE state, STATE new_state) {
+        if (new_state != STATE::ERROR_STATE) {
+            return "No Error";
         }
-
-        pop_lexeme = true;
-        if(state == STATE::K_CHECK) {
-
+        switch (state) {
+            case STATE::N_DECIMAL:
+                return "Invalid floating point number.";
+            case STATE::I1:
+                return "Invalid identifier.";
+            case STATE::O_NOT:
+                return "Invalid logical NOT operator.";
+            case STATE::SL1:
+                return "Unterminated string literal.";
+            case STATE::P_COLON:
+                return "Unexpected character after ':' symbol.";
+            case STATE::N_EXP:
+                return "Malformed exponent in floating point number.";
+            default:
+                return "Unrecognized token encountered.";
         }
-        else {
-            if (transition_table.isFinal(state)) {
-                
-            }
-        }
-        
-        if(pop_lexeme) {
+    }
 
-            //[review]
-            buffer.popLexeme();
-            if(isspace(buffer.peekNextCharacter())) {    //skip space
+public:
+    Lexer(const char* filename, SYMBOL_TABLE& symTable, LITERAL_TABLE& litTable,std::unordered_set<std::string>& kw)
+        : symbol_table(symTable), literal_table(litTable),keywords(kw) {
+        loadTransitions();
+        buffer.setFile(filename);
+    }
+
+    bool setBuffer(const char* filename) {
+        return buffer.setFile(filename);
+    }
+
+    TOKEN getNextToken() {
+        char c;
+        STATE state = STATE::START;
+        STATE new_state = STATE::START;
+        std::string t_lexeme;
+        size_t token_id = -1;
+    
+        while (buffer.peekNextCharacter() != __EOF__) {
+            t_lexeme = "";
+
+            if (isspace(buffer.peekNextCharacter())) {
                 buffer.advance();
                 buffer.advanceBp();
             }
+            while (!transition_table.isFinal(new_state) && new_state != STATE::ERROR_STATE && (c=buffer.peekNextCharacter()) != __EOF__) {
+                
+                state = new_state;
+                std::cout << getStateName(state) << " " << c << std::endl;
+                new_state = transition_table[state][c];
+                if (transition_table.advance(state, new_state))
+                    buffer.advance();
+            }
+            if (new_state == STATE::K_CHECK) {
+                t_lexeme = buffer.peekLexeme();
+                if (keywords.count(t_lexeme) == 0) {
+                    state = new_state;
+                    new_state = transition_table[state][t_lexeme];
+                    if (new_state != STATE::ERROR_STATE)
+                        continue;
+                }
+            } else if (new_state == STATE::ERROR_STATE) {
+                std::cout << getErrorStatement(state, new_state) << std::endl;
+                new_state = STATE::START;
+                buffer.popLexeme();
+                continue;
+            }
+            t_lexeme = buffer.popLexeme();
+            TOKEN_CLASS token_class = transition_table.getTokenClass(new_state);
+            if (token_class == TOKEN_CLASS::Identifier) {
+                token_id = symbol_table.insert(t_lexeme, SYMBOL_TABLE_ENTRY(token_class, t_lexeme, DATA_TYPE::T_DEFAULT));
+                return TOKEN(token_id, &(symbol_table.find(t_lexeme)->lexeme), token_class, 0, 0);
+            } else if (token_class == TOKEN_CLASS::Number || token_class == TOKEN_CLASS::String_Literal) {
+                token_id = literal_table.insert(t_lexeme, DATA_TYPE::T_DEFAULT);
+                return TOKEN(token_id, &(literal_table.find(t_lexeme)->value), token_class, 0, 0);
+            }
+
+            //[review] potential memory leak
+            return TOKEN(0, new std::string(t_lexeme), token_class, 0, 0);
         }
-        
-        
-
-        //push in st if not there already st
-
     }
 
-    return tokens;
-}
-
+    bool isEmpty() {
+        return buffer.peekNextCharacter() == __EOF__;
+    }
+};
+    
 int Scanner(const char *filename) {
     
 
@@ -482,7 +721,6 @@ int Scanner(const char *filename) {
                 } 
                 if(i < bytes_read) {
                     lastWhitespace = false;
-                    last_space = true;
                     i--;
                 }
 
@@ -493,6 +731,7 @@ int Scanner(const char *filename) {
                 if(!last_comment)
                     out_buffer[out_file_index++] = buffer[i];
                 lastWhitespace = true;
+                last_space=true;
                 continue;
                 
             }
@@ -516,87 +755,12 @@ int Scanner(const char *filename) {
 
 
 
-bool loadTransitions(TRANSITION_TABLE& transition_table) {
-
-    transition_table[STATE::START]([](char c) { return isdigit(c); }) = STATE::N1;
-    transition_table[STATE::START]([](char c) { return isspace(c); }) = STATE::P_FINAL;
-    transition_table[STATE::START]('_') = STATE::I_UND;
-    transition_table[STATE::START]([](char c) { return isalpha(c); }) = STATE::I1;
-    transition_table[STATE::START]('[') = STATE::P_FINAL;
-    transition_table[STATE::START](']') = STATE::P_FINAL;
-    transition_table[STATE::START]('(') = STATE::P_FINAL;
-    transition_table[STATE::START](')') = STATE::P_FINAL;
-    transition_table[STATE::START]('{') = STATE::P_FINAL;
-    transition_table[STATE::START]('}') = STATE::P_FINAL;
-    transition_table[STATE::START](':') = STATE::P_COLON;
-    transition_table[STATE::START]('<') = STATE::O_LT;
-    transition_table[STATE::START]('>') = STATE::O_GT;
-    transition_table[STATE::START]('=') = STATE::O_ET;
-    transition_table[STATE::START]('+') = STATE::O_ADD;
-    transition_table[STATE::START]('-') = STATE::O_SUBTRACT;
-    transition_table[STATE::START]('!') = STATE::O_NOT;
-    transition_table[STATE::START]('|') = STATE::O_OR;
-    transition_table[STATE::START]('%') = STATE::O_FINAL;
-    transition_table[STATE::START]('&') = STATE::O_AND;
-    transition_table[STATE::START]('*') = STATE::O_FINAL;
-    transition_table[STATE::START]('/') = STATE::O_FINAL;
-
-    // [review] string quotes
-    transition_table[STATE::START]('"') = STATE::O_FINAL;
-
-    transition_table[STATE::N1]([](char c) { return isdigit(c); }) = STATE::N1;
-    transition_table[STATE::N1]('.') = STATE::N_DECIMAL;
-    transition_table[STATE::N1]('E') = STATE::N_EXP;
-
-    transition_table[STATE::N_DECIMAL]([](char c) { return isdigit(c); }) = STATE::N_DECIMAL_N;
-    transition_table[STATE::N_DECIMAL_N]([](char c) { return isdigit(c); }) = STATE::N_DECIMAL_N;
-    transition_table[STATE::N_DECIMAL_N]('E') = STATE::N_EXP;
-
-    transition_table[STATE::N_EXP]([](char c) { return isdigit(c); }) = STATE::N_EXP_N;
-    transition_table[STATE::N_EXP]('+') = STATE::N_EXP_ADD_SUB;
-    transition_table[STATE::N_EXP]('-') = STATE::N_EXP_ADD_SUB;
-    transition_table[STATE::N_EXP_N]([](char c) { return isdigit(c); }) = STATE::N_EXP_N;
-
-    transition_table[STATE::I_UND]([](char c) { return isdigit(c); }) = STATE::I_UND;
-    transition_table[STATE::I_UND]([](char c) { return isalpha(c); }) = STATE::I_UND;
-    transition_table[STATE::I_UND]('-') = STATE::I_UND;
-    transition_table[STATE::I1]([](char c) { return isdigit(c); }) = STATE::I1;
-    transition_table[STATE::I1]([](char c) { return isalpha(c); }) = STATE::I1;
-    transition_table[STATE::I1]('_') = STATE::I_UND;
-
-    transition_table[STATE::P_COLON]('=') = STATE::O_FINAL;
-    transition_table[STATE::P_COLON](':') = STATE::P_FINAL;
-    transition_table[STATE::O_LT]('=') = STATE::O_FINAL;
-    transition_table[STATE::O_GT]('=') = STATE::O_FINAL;
-    transition_table[STATE::O_ET]('=') = STATE::O_FINAL;
-    transition_table[STATE::O_ADD]('=') = STATE::O_FINAL;
-    transition_table[STATE::O_SUBTRACT]('=') = STATE::O_FINAL;
-    transition_table[STATE::O_NOT]('=') = STATE::O_FINAL;
-    transition_table[STATE::O_OR]('|') = STATE::O_FINAL;
-    transition_table[STATE::O_AND]('&') = STATE::O_FINAL;
-
-    //others
-
-    transition_table[STATE::N1]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::N_FINAL;
-    transition_table[STATE::N_DECIMAL_N]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::N_FINAL;
-    transition_table[STATE::N_EXP_N]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::N_FINAL;
-    transition_table[STATE::I1]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::K_CHECK;
-    transition_table[STATE::I_UND]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::I_FINAL;
-    transition_table[STATE::O_LT]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::O_FINAL;
-    transition_table[STATE::O_GT]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::O_FINAL;
-    transition_table[STATE::O_ET]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::O_FINAL;
-    transition_table[STATE::O_ADD]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::O_FINAL;
-    transition_table[STATE::O_SUBTRACT]([](char c) { return Transitions::isValidCharacter(c); }) = STATE::O_FINAL;
- 
-    return true;
-
-}
 
 
 int main() {
 
 
-    time_t start_time = time(NULL); 
+    clock_t start_time = clock(); 
     const char* input_filename = "_src.ucc";
     std::unordered_set<std::string> keywords = {
         "asm", "Wagarna", "new", "this", "auto", "enum", "operator", "throw", "Mantiqi",
@@ -606,26 +770,29 @@ int main() {
         "dost", "short", "unsigned", "goto", "signed", "using", "continue", "Agar", 
         "sizeof", "virtual", "default", "inline", "static", "Khali", "delete", 
         "volatile", "do", "long", "struct", "double", "mutable", "switch", "while", 
-        "namespace", "template", "Marqazi", "Matn"
+        "namespace", "template", "Marqazi", "Matn", "output->", "input<-"
     };
-
-    TRANSITION_TABLE transition_table;
-
-    loadTransitions(transition_table);
     
     //Define all transitions
     SYMBOL_TABLE symbol_table;
-
+    LITERAL_TABLE literal_table;
 
     Scanner(input_filename);
 
-    BUFFER buffer((std::string(input_filename) + ".Meow").c_str());
-
     
-    time_t scanner_time = time(NULL) - start_time;
+    double scanner_time = (double)(clock() - start_time) / CLOCKS_PER_SEC;
     std::cout << scanner_time << std::endl;
-    Lexer(buffer,symbol_table,transition_table, keywords );
-    std::cout << time(NULL) - start_time - scanner_time << std::endl;
+    
+
+    Lexer lex((std::string(input_filename) + ".Meow").c_str(),symbol_table,literal_table,keywords);
+    while (!lex.isEmpty())
+    {
+        TOKEN t = lex.getNextToken();
+        std::cout << *t.t_lexeme << std::endl;
+    }
+    
+
+    std::cout <<  (double)(clock() - start_time) / CLOCKS_PER_SEC - scanner_time << std::endl;
 
 
 

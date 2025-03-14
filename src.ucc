@@ -6,11 +6,11 @@ Adadi Marqazi ()
     */
     Ashriya num_ = -10.5E+12 ::
     Ashriya n_umber = +9.3 ::
-    Harf cou_se = “c” ::
-    Matn course_ = “Compiler Construction” ::
+    Harf cou_se = "c" ::
+    Matn course_ = "Compiler Construction" ::
     Mantiqi _flag = True ::
     Agar ( _flag )
-        output<- “Ok” :: //helloalkjdlkasjd
+        output<- "Ok" :: //helloalkjdlkasjd
     Wagarna  //a;lsdjlkasjd
         input-> _num ::   //alkjdlaksjdlasj
     Wapas 0 ::
