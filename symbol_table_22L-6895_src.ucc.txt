@@ -1,0 +1,9 @@
+0	_num, Identifier, T_DEFAULT
+1	num_, Identifier, T_DEFAULT
+2	n_umber, Identifier, T_DEFAULT
+3	cou_se, Identifier, T_DEFAULT
+4	course_, Identifier, T_DEFAULT
+5	_flag, Identifier, T_DEFAULT
+3	Lexeme: cou_se, Token Class: Identifier, Data Type: T_DEFAULT
+4	Lexeme: course_, Token Class: Identifier, Data Type: T_DEFAULT
+5	Lexeme: _flag, Token Class: Identifier, Data Type: T_DEFAULT

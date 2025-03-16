@@ -1,0 +1,11 @@
+0	10, T_DEFAULT
+1	-10.5E+12, T_DEFAULT
+2	+9.3, T_DEFAULT
+3	"c", T_DEFAULT
+4	"Compiler Construction", T_DEFAULT
+5	"Ok", T_DEFAULT
+6	0, T_DEFAULT
+T
+4	Value: "Compiler Construction", Data Type: T_DEFAULT
+5	Value: "Ok", Data Type: T_DEFAULT
+6	Value: 0, Data Type: T_DEFAULT

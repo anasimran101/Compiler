@@ -8,6 +8,7 @@
 #include <set>
 #include <functional>
 #include <cctype>
+#include <optional>
 
 #include <ctime>
 
@@ -15,10 +16,9 @@
 #define BUFFER_SIZE 25
 #define __EOF__ '\0'
 
-#define ROLL_NO 22L-6895
+const std::string ROLL_NO = "22L-6895_";
 
 //[review] last space
-
 
 
 /*state to integer maping*/
@@ -50,24 +50,14 @@ enum STATE : u_int8_t {
     SL_FINAL,
     K_CHECK,
     K_OUTPUT,
-    K_OUTPUT_SUB,
-    K_INPUT_LT,
+    K_OUTPUT_LT,
+    K_INPUT_SUB,
     K_INPUT,
     K_FINAL
 };
 
 
-enum TOKEN_CLASS {
-    ERROR,
-    Keyword,
-    Operator,
-    Identifier,
-    Number,
-    String_Literal,
-    Punctuation
-};
-
-const char* getStateName(STATE state) {
+std::string getStateName(STATE state) {
     switch (state) {
         case ERROR_STATE: return "ERROR_STATE";
         case START: return "START";
@@ -92,10 +82,28 @@ const char* getStateName(STATE state) {
         case P_COLON: return "P_COLON";
         case P_FINAL: return "P_FINAL";
         case O_FINAL: return "O_FINAL";
+        case SL1: return "SL1";
+        case SL_FINAL: return "SL_FINAL";
         case K_CHECK: return "K_CHECK";
+        case K_OUTPUT: return "K_OUTPUT";
+        case K_OUTPUT_LT: return "K_OUTPUT_LT";
+        case K_INPUT_SUB: return "K_INPUT_SUB";
+        case K_INPUT: return "K_INPUT";
+        case K_FINAL: return "K_FINAL";
         default: return "UNKNOWN_STATE";
     }
 }
+
+enum TOKEN_CLASS {
+    ERROR,
+    Keyword,
+    Operator,
+    Identifier,
+    Number,
+    String_Literal,
+    Punctuation
+};
+
 
 
 enum DATA_TYPE {
@@ -103,50 +111,58 @@ enum DATA_TYPE {
 };
 
 
+
+std::string tokenClassToString(TOKEN_CLASS token) {
+    switch (token) {
+        case ERROR: return "ERROR";
+        case Keyword: return "Keyword";
+        case Operator: return "Operator";
+        case Identifier: return "Identifier";
+        case Number: return "Number";
+        case String_Literal: return "String_Literal";
+        case Punctuation: return "Punctuation";
+        default: return "Unknown";
+    }
+}
+
+std::string dataTypeToString(DATA_TYPE type) {
+    switch (type) {
+        case T_DEFAULT: return "T_DEFAULT";
+        default: return "Unknown";
+    }
+}
+
+
 struct TOKEN {
-    size_t t_id;
-    std::string t_lexeme;
+    ssize_t t_id;
+    std::optional<std::string> t_lexeme;
     TOKEN_CLASS t_class;
     int line_number;
     int column_number;
 
-    TOKEN(size_t id = 0, std::string* lexeme = nullptr, TOKEN_CLASS tclass = TOKEN_CLASS::ERROR, int line = 0, int column = 0)
+    TOKEN(ssize_t id=-1,const std::optional<std::string>& lexeme = std::nullopt, TOKEN_CLASS tclass = TOKEN_CLASS::ERROR, int line = 0, int column = 0)
         : t_id(id), t_lexeme(lexeme), t_class(tclass), line_number(line), column_number(column) {}
-};
 
+
+    std::string toString() const{
+
+        return "<"+ (t_id == -1 ? "" : std::to_string(t_id) + ", ")+ 
+        (t_lexeme.has_value()? t_lexeme.value() +  ", " : "")+ tokenClassToString(t_class)+  ">";
+    }
+};
 struct SYMBOL_TABLE_ENTRY {
     TOKEN_CLASS token_class;
     std::string lexeme;
     DATA_TYPE datatype;
     size_t memory_location;
 
-    SYMBOL_TABLE_ENTRY(TOKEN_CLASS _class = TOKEN_CLASS::ERROR, const std::string& _lexeme = {}, DATA_TYPE _datatype = DATA_TYPE::T_DEFAULT)
-        : token_class(_class), lexeme(_lexeme), datatype(_datatype) {}
-};
+    SYMBOL_TABLE_ENTRY(TOKEN_CLASS _class = TOKEN_CLASS::ERROR, const std::string& _lexeme = "", DATA_TYPE _datatype = DATA_TYPE::T_DEFAULT, size_t _memory_location = 0)
+        : token_class(_class), lexeme(_lexeme), datatype(_datatype), memory_location(_memory_location) {}
 
-class SYMBOL_TABLE {
-    std::unordered_map<std::string, size_t> lexeme_to_index;  // Map lexeme to index in vector
-    std::vector<SYMBOL_TABLE_ENTRY> entries;  // Stores symbol table entries
-
-public:
-    SYMBOL_TABLE_ENTRY* find(const std::string& lexeme) {
-        auto it = lexeme_to_index.find(lexeme);
-        if (it != lexeme_to_index.end()) {
-            return &entries[it->second];
-        }
-        return nullptr;
-    }
-
-    size_t insert(const std::string& lexeme, SYMBOL_TABLE_ENTRY entry) {
-        auto it = lexeme_to_index.find(lexeme);
-        if (it != lexeme_to_index.end()) {
-            return it->second;
-        }
-        
-        size_t index = entries.size();
-        entries.push_back(entry);
-        lexeme_to_index[lexeme] = index;
-        return index;
+    std::string toString() const{
+        return lexeme 
+           + ", " + tokenClassToString(token_class)
+           + ", " + dataTypeToString(datatype);
     }
 };
 
@@ -156,33 +172,69 @@ struct LITERAL_TABLE_ENTRY {
 
     LITERAL_TABLE_ENTRY(const std::string& _value = "", DATA_TYPE _datatype = DATA_TYPE::T_DEFAULT)
         : value(_value), datatype(_datatype) {}
+
+    std::string toString() const{
+        return  value 
+           + ", " + dataTypeToString(datatype);
+    }
 };
 
-class LITERAL_TABLE {
-    std::unordered_map<std::string, size_t> literal_to_index;  // Map literal to index in vector
-    std::vector<LITERAL_TABLE_ENTRY> entries;  // Stores literal table entries
+
+template <typename T>
+class TABLE {
+    std::unordered_map<std::string, size_t> lexeme_to_index;
+    std::vector<T> entries;
 
 public:
-    LITERAL_TABLE_ENTRY* find(const std::string& value) {
-        auto it = literal_to_index.find(value);
-        if (it != literal_to_index.end()) {
+    T* find(const std::string& lexeme) const {
+        auto it = lexeme_to_index.find(lexeme);
+        if (it != lexeme_to_index.end()) {
             return &entries[it->second];
         }
         return nullptr;
     }
 
-    size_t insert(const std::string& value, DATA_TYPE datatype) {
-        auto it = literal_to_index.find(value);
-        if (it != literal_to_index.end()) {
+    size_t insert(const std::string& lexeme, const T& entry) {
+        auto it = lexeme_to_index.find(lexeme);
+        if (it != lexeme_to_index.end()) {
             return it->second;
         }
-        
+
         size_t index = entries.size();
-        entries.emplace_back(value, datatype);
-        literal_to_index[value] = index;
+        entries.push_back(entry);
+        lexeme_to_index[lexeme] = index;
         return index;
     }
+
+    
+
+    bool writeToFile(const std::string& filename) const {
+        int fd = open(filename.c_str(), O_CREAT|O_WRONLY,0644);
+
+        if(fd == -1) {
+            std::cerr << "TABLE:writeToFile() unable to open file\n";
+            return false;
+        }
+
+        int i=0;
+        std::string buffer;
+        for(const auto& e:entries) { 
+            buffer = std::to_string(i)+ "\t"+e.toString() + "\n";
+            ssize_t bytes_written = write(fd, buffer.c_str(),buffer.size());
+            if (bytes_written == -1) {
+                std::cerr << "TABLE:writeToFile() unable to write to file\n";
+                close(fd);
+                return false;
+            }
+            ++i;
+        }
+        close(fd);
+
+        return true;
+    }
 };
+
+
 
 
 class Transitions {
@@ -210,7 +262,7 @@ public:
         return transitions[character];
     }
 
-    STATE operator [] (std::string& keyword) {
+    STATE operator [] (const std::string& keyword) {
         if (keyword_transitions.find(keyword) == keyword_transitions.end()) {
             return error_state;
         }
@@ -221,7 +273,7 @@ public:
         return transitions[character];
     }
 
-    STATE& operator () (std::string keyword) {
+    STATE& operator () (const std::string& keyword) {
         return keyword_transitions[keyword];
     }
 
@@ -231,7 +283,7 @@ public:
     }
 
     static bool isValidCharacter(char c) {
-        return isdigit(c) || isalpha(c) || isspace(c)|| valid_chars.count(c) > 0;
+        return isdigit(c) || c == __EOF__ ||isalpha(c) || isspace(c)|| valid_chars.count(c) > 0;
     }
     
 };
@@ -292,8 +344,10 @@ public:
                 return TOKEN_CLASS::Punctuation;  
             case STATE::I_FINAL:
                 return TOKEN_CLASS::Identifier;   
-            case STATE::K_CHECK:
-                return TOKEN_CLASS::Keyword;      
+            case STATE::K_FINAL:
+                return TOKEN_CLASS::Keyword;
+            case STATE::SL_FINAL:
+                return TOKEN_CLASS::String_Literal;       
 
             default:
                 return TOKEN_CLASS::ERROR;      
@@ -301,6 +355,7 @@ public:
     }
 
 };
+
 
 class BUFFER {
 private:
@@ -358,10 +413,9 @@ public:
     }
 
     char peekNextCharacter() {
-        if(fp >= current_buffer_size) 
-            return __EOF__;
-        return buffer[buffer_in_use][fp];
+        return fp >= current_buffer_size? __EOF__: buffer[buffer_in_use][fp];
     }
+
     bool advance() {
 
         if(fp >= current_buffer_size) {
@@ -374,17 +428,13 @@ public:
                 fp = current_buffer_size;
                 return true;
             }
-            if(loadBuffer()) {
-                
-                return true;
-            }
-            return false;
+            return loadBuffer();
         }
         fp++;
 
         if(current_lexeme_size >= BUFFER_SIZE) {
             std::cerr << "FATAL ERROR: lexeme buffer overflow" << std::endl;
-            exit(1);
+            exit(EXIT_FAILURE);
         }
         return true;
 
@@ -401,7 +451,7 @@ public:
 
     std::string peekLexeme() {
 
-        if(bp == fp) return "l";
+        if(bp == fp) return "";
         std::string lexeme;
         int t_bp = bp;
         if (bp + current_lexeme_size >= BUFFER_SIZE) {   // lexeme divided into 2 buffers
@@ -428,8 +478,9 @@ public:
 class Lexer {
 private:
     BUFFER buffer;
-    SYMBOL_TABLE& symbol_table;
-    LITERAL_TABLE& literal_table;
+    TABLE<SYMBOL_TABLE_ENTRY>& symbol_table;
+    TABLE<LITERAL_TABLE_ENTRY>& literal_table;
+
     TRANSITION_TABLE transition_table;
     std::unordered_set<std::string>& keywords;
 
@@ -462,9 +513,9 @@ private:
         transition_table[STATE::START]('*') = STATE::O_FINAL;
         transition_table[STATE::START]('/') = STATE::O_FINAL;
 
-        // [review] string quotes
+        // [review] string valid characters
         transition_table[STATE::START]('"') = STATE::SL1;
-        transition_table[STATE::SL1]([](char c) { return (c >= 32 || c == '\t' || c == '\n' || c == '\r'); }) = STATE::SL1;;
+        transition_table[STATE::SL1]([](char c) { return (c >= 32 || c == '\t' || c == '\n' || c == '\r'); }) = STATE::SL1;
         transition_table[STATE::SL1]('"') = STATE::SL_FINAL;
 
 
@@ -521,12 +572,12 @@ private:
     
 
         //keywords
-        transition_table[STATE::I1]("output") = STATE::K_OUTPUT;
-        transition_table[STATE::I1]("input") = STATE::K_INPUT;
-        transition_table[STATE::K_INPUT]('<') = STATE::K_INPUT_LT;
-        transition_table[STATE::K_INPUT_LT]('-') = K_FINAL;
-        transition_table[STATE::K_OUTPUT]('-') = K_OUTPUT_SUB;
-        transition_table[STATE::K_OUTPUT_SUB]('>') = K_FINAL;
+        transition_table[STATE::K_CHECK]("output") = STATE::K_OUTPUT;
+        transition_table[STATE::K_CHECK]("input") = STATE::K_INPUT;
+        transition_table[STATE::K_INPUT]('-') = STATE::K_INPUT_SUB;
+        transition_table[STATE::K_INPUT_SUB]('>') = K_FINAL;
+        transition_table[STATE::K_OUTPUT]('<') = K_OUTPUT_LT;
+        transition_table[STATE::K_OUTPUT_LT]('-') = K_FINAL;
 
         return true;
     }
@@ -554,7 +605,7 @@ private:
     }
 
 public:
-    Lexer(const char* filename, SYMBOL_TABLE& symTable, LITERAL_TABLE& litTable,std::unordered_set<std::string>& kw)
+    Lexer(const char* filename, TABLE<SYMBOL_TABLE_ENTRY>& symTable, TABLE<LITERAL_TABLE_ENTRY>& litTable,std::unordered_set<std::string>& kw)
         : symbol_table(symTable), literal_table(litTable),keywords(kw) {
         loadTransitions();
         buffer.setFile(filename);
@@ -563,13 +614,17 @@ public:
     bool setBuffer(const char* filename) {
         return buffer.setFile(filename);
     }
-
+    inline void transition(STATE &state, STATE &new_state,const STATE &next_state) {
+        state=new_state;
+        new_state=next_state;
+    }
     TOKEN getNextToken() {
         char c;
         STATE state = STATE::START;
         STATE new_state = STATE::START;
         std::string t_lexeme;
         size_t token_id = -1;
+        TOKEN_CLASS token_class;
     
         while (buffer.peekNextCharacter() != __EOF__) {
             t_lexeme = "";
@@ -578,41 +633,45 @@ public:
                 buffer.advance();
                 buffer.advanceBp();
             }
-            while (!transition_table.isFinal(new_state) && new_state != STATE::ERROR_STATE && (c=buffer.peekNextCharacter()) != __EOF__) {
-                
-                state = new_state;
-                std::cout << getStateName(state) << " " << c << std::endl;
-                new_state = transition_table[state][c];
+            while (!transition_table.isFinal(new_state) && new_state != STATE::ERROR_STATE ) {
+                c=buffer.peekNextCharacter();
+                transition(state, new_state,transition_table[new_state][c]);
                 if (transition_table.advance(state, new_state))
                     buffer.advance();
             }
             if (new_state == STATE::K_CHECK) {
                 t_lexeme = buffer.peekLexeme();
                 if (keywords.count(t_lexeme) == 0) {
-                    state = new_state;
-                    new_state = transition_table[state][t_lexeme];
+                    transition(state, new_state,transition_table[new_state][t_lexeme]);
                     if (new_state != STATE::ERROR_STATE)
                         continue;
                 }
-            } else if (new_state == STATE::ERROR_STATE) {
-                std::cout << getErrorStatement(state, new_state) << std::endl;
+                transition(state, new_state,K_FINAL);
+            } else if (new_state == STATE::ERROR_STATE || new_state == STATE::SL1) {
+
+                //for string literal
+                state = new_state==STATE::ERROR_STATE? state :new_state;
+                new_state = STATE::ERROR_STATE;
+
+                std::cout <<"[LEX ERROR]: " <<getErrorStatement(state, new_state) << std::endl;
                 new_state = STATE::START;
                 buffer.popLexeme();
                 continue;
             }
             t_lexeme = buffer.popLexeme();
-            TOKEN_CLASS token_class = transition_table.getTokenClass(new_state);
+            token_class = transition_table.getTokenClass(new_state);
             if (token_class == TOKEN_CLASS::Identifier) {
                 token_id = symbol_table.insert(t_lexeme, SYMBOL_TABLE_ENTRY(token_class, t_lexeme, DATA_TYPE::T_DEFAULT));
-                return TOKEN(token_id, &(symbol_table.find(t_lexeme)->lexeme), token_class, 0, 0);
+                return TOKEN(token_id,  std::nullopt, token_class, 0, 0);
             } else if (token_class == TOKEN_CLASS::Number || token_class == TOKEN_CLASS::String_Literal) {
-                token_id = literal_table.insert(t_lexeme, DATA_TYPE::T_DEFAULT);
-                return TOKEN(token_id, &(literal_table.find(t_lexeme)->value), token_class, 0, 0);
+                token_id = literal_table.insert(t_lexeme, LITERAL_TABLE_ENTRY(t_lexeme,DATA_TYPE::T_DEFAULT));
+                return TOKEN(token_id, std::nullopt,token_class, 0, 0);
             }
 
-            //[review] potential memory leak
-            return TOKEN(0, new std::string(t_lexeme), token_class, 0, 0);
+            break;
+            
         }
+        return TOKEN(-1, t_lexeme, token_class, 0, 0);
     }
 
     bool isEmpty() {
@@ -753,6 +812,30 @@ int Scanner(const char *filename) {
 }
 
 
+bool writeTokenToFile(std::vector<TOKEN>& token_stream, std::string& filename) {
+    int fd = open(filename.c_str(), O_CREAT|O_WRONLY,0644);
+
+    if(fd == -1) {
+        std::cerr << "writeTokenToFile() unable to open file\n";
+        return false;
+    }
+
+    int i=0;
+    std::string buffer;
+    for(const auto& e:token_stream) { 
+        buffer = std::to_string(i)+ "\t"+ e.toString() + "\n";
+        ssize_t bytes_written = write(fd, buffer.c_str(),buffer.size());
+        if (bytes_written == -1) {
+            std::cerr << "writeTokenToFile() unable to write to file\n";
+            close(fd);
+            return false;
+        }
+        ++i;
+    }
+    close(fd);
+
+    return true;
+}
 
 
 
@@ -761,7 +844,7 @@ int main() {
 
 
     clock_t start_time = clock(); 
-    const char* input_filename = "_src.ucc";
+    const char* input_filename = "src.ucc";
     std::unordered_set<std::string> keywords = {
         "asm", "Wagarna", "new", "this", "auto", "enum", "operator", "throw", "Mantiqi",
         "explicit", "private", "True", "break", "export", "protected", "try", "case", 
@@ -773,31 +856,36 @@ int main() {
         "namespace", "template", "Marqazi", "Matn", "output->", "input<-"
     };
     
-    //Define all transitions
-    SYMBOL_TABLE symbol_table;
-    LITERAL_TABLE literal_table;
+    
+    TABLE<SYMBOL_TABLE_ENTRY> symbol_table;
+    TABLE<LITERAL_TABLE_ENTRY> literal_table;
+    std::vector<TOKEN> token_stream;
 
     Scanner(input_filename);
 
     
     double scanner_time = (double)(clock() - start_time) / CLOCKS_PER_SEC;
-    std::cout << scanner_time << std::endl;
+    std::cout <<"Scan complete. Time: " <<scanner_time << std::endl;
     
 
     Lexer lex((std::string(input_filename) + ".Meow").c_str(),symbol_table,literal_table,keywords);
     while (!lex.isEmpty())
     {
-        TOKEN t = lex.getNextToken();
-        std::cout << *t.t_lexeme << std::endl;
+        token_stream.push_back(std::move(lex.getNextToken()));
     }
-    
-
-    std::cout <<  (double)(clock() - start_time) / CLOCKS_PER_SEC - scanner_time << std::endl;
 
 
+    std::cout << "\n\n--------TOKEN STREAM-------\n\n";
+    for (const auto& token: token_stream) {
+        std::cout << token.toString() << std::endl;
+    }
 
-    
-    
+    std::cout <<"Tokens generated. Time: " << (double)(clock() - start_time) / CLOCKS_PER_SEC - scanner_time << std::endl;
+ 
 
-    
+    std::cout << "Generated text files\n";
+    symbol_table.writeToFile("symbol_table_"+ ROLL_NO +std::string(input_filename)+".txt");
+    literal_table.writeToFile("literal_table_" + ROLL_NO +std::string(input_filename)+ +".txt");
+
+    return EXIT_SUCCESS;    
 }
