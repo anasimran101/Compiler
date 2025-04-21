@@ -413,12 +413,14 @@ TOKEN Lexer::getNextToken() {
     STATE new_state = STATE::START;
     std::string t_lexeme;
     size_t token_id = -1;
-    TOKEN_CLASS token_class;
+    TOKEN_CLASS token_class = T_EOF;
 
     while (buffer.peekNextCharacter() != __EOF__) {
         t_lexeme = "";
 
         if (isspace(buffer.peekNextCharacter())) {
+            ++current_token_lines;
+            current_token_columns=0;
             buffer.advance();
             buffer.advanceBp();
         }
@@ -431,12 +433,14 @@ TOKEN Lexer::getNextToken() {
         if (new_state == STATE::K_CHECK) {
             t_lexeme = buffer.peekLexeme();
             if (keywords.count(t_lexeme) == 0) {
+                std::cout << t_lexeme << std::endl;
                 transition(state, new_state, transition_table[new_state][t_lexeme]);
                 if (new_state != STATE::ERROR_STATE)
                     continue;
             }
-            transition(state, new_state, K_FINAL);
-        } else if (new_state == STATE::ERROR_STATE || new_state == STATE::SL1) {
+            else    
+                transition(state, new_state, K_FINAL);
+        } if (new_state == STATE::ERROR_STATE || new_state == STATE::SL1) {
             // for string literal
             state = new_state == STATE::ERROR_STATE ? state : new_state;
             new_state = STATE::ERROR_STATE;
@@ -446,19 +450,20 @@ TOKEN Lexer::getNextToken() {
             buffer.popLexeme();
             continue;
         }
+        ++current_token_columns;
         t_lexeme = buffer.popLexeme();
         token_class = transition_table.getTokenClass(new_state);
         if (token_class == TOKEN_CLASS::Identifier) {
             token_id = symbol_table.insert(t_lexeme, SYMBOL_TABLE_ENTRY(token_class, t_lexeme, DATA_TYPE::T_DEFAULT));
-            return TOKEN(token_id, std::nullopt, token_class, 0, 0);
+            return TOKEN(token_id, std::nullopt, token_class, current_token_lines, current_token_columns);
         } else if (token_class == TOKEN_CLASS::Number || token_class == TOKEN_CLASS::String_Literal) {
             token_id = literal_table.insert(t_lexeme, LITERAL_TABLE_ENTRY(t_lexeme, DATA_TYPE::T_DEFAULT));
-            return TOKEN(token_id, std::nullopt, token_class, 0, 0);
+            return TOKEN(token_id, std::nullopt, token_class, current_token_lines, current_token_columns);
         }
 
         break;
     }
-    return TOKEN(-1, t_lexeme, token_class, 0, 0);
+    return TOKEN(-1, t_lexeme, token_class, current_token_lines, current_token_columns);
 }
 
 bool Lexer::isEmpty() {

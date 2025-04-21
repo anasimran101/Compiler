@@ -1,0 +1,7 @@
+0	M_arazi, Identifier, T_DEFAULT
+1	_num, Identifier, T_DEFAULT
+2	num_, Identifier, T_DEFAULT
+3	n_umber, Identifier, T_DEFAULT
+4	_flag, Identifier, T_DEFAULT
+5	tem_p, Identifier, T_DEFAULT
+6	anothe_rNum, Identifier, T_DEFAULT

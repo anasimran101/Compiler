@@ -1,0 +1,184 @@
+	programme
+	|
+		type
+		|
+		
+		Identifier
+		|
+		
+		programme_1
+		|
+			argList
+			|
+			
+			compStmt
+			|
+				stmtList
+				|
+					stmt
+					|
+						noIfStmt
+						|
+							declaration
+							|
+								type
+								|
+								
+								Identifier
+								|
+								
+					stmtList
+					|
+						stmt
+						|
+							noIfStmt
+							|
+								declaration
+								|
+									type
+									|
+									
+									Identifier
+									|
+									
+						stmtList
+						|
+							stmt
+							|
+								noIfStmt
+								|
+									declaration
+									|
+										type
+										|
+										
+										Identifier
+										|
+										
+							stmtList
+							|
+								stmt
+								|
+									ifStmt
+									|
+										expr
+										|
+											Identifier
+											|
+											
+											expr_1
+											|
+												rvalue_1
+												|
+												
+										stmt
+										|
+											ifStmt
+											|
+												expr
+												|
+													Identifier
+													|
+													
+													expr_1
+													|
+														rvalue_1
+														|
+														
+												stmt
+												|
+													noIfStmt
+													|
+														declaration
+														|
+															type
+															|
+															
+															Identifier
+															|
+															
+												elsePart
+												|
+													stmt
+													|
+														noIfStmt
+														|
+															expr
+															|
+																Identifier
+																|
+																
+																expr_1
+																|
+																	expr
+																	|
+																		rvalue
+																		|
+																			mag
+																			|
+																				term
+																				|
+																					factor
+																					|
+																						Number
+																						|
+																						
+																					term_1
+																					|
+																					
+																				mag_1
+																				|
+																				
+																			rvalue_1
+																			|
+																			
+								stmtList
+								|
+									stmt
+									|
+										noIfStmt
+										|
+											returnStmt
+											|
+												expr
+												|
+													rvalue
+													|
+														mag
+														|
+															term
+															|
+																factor
+																|
+																	Number
+																	|
+																	
+																term_1
+																|
+																
+															mag_1
+															|
+															
+														rvalue_1
+														|
+														
+									stmtList
+									|
+									
+			programme
+			|
+			
+
+																	
+																mag_1
+																|
+																
+															rvalue_1
+															|
+															
+										stmtList
+										|
+										
+			programme
+			|
+			

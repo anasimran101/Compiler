@@ -63,6 +63,7 @@ enum TOKEN_CLASS {
     Identifier,
     Number,
     String_Literal,
+    T_EOF,
     Punctuation
 };
 
@@ -211,9 +212,7 @@ private:
     TRANSITION_TABLE transition_table;
     std::unordered_set<std::string>& keywords;
 
-    int last_token_line_no = 0;
-    int last_token_column_number = 0;
-    int current_token_lines = 0;
+    int current_token_lines = 1;
     int current_token_columns = 0;
 
     bool loadTransitions();

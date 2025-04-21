@@ -1,6 +1,8 @@
 
-
+#include <iostream>
+#include <vector>
 #include "lexer.hpp"
+#include <parser.hpp>
 
 
 int main(int argc, char* args[]) {
@@ -52,9 +54,15 @@ int main(int argc, char* args[]) {
     std::cout <<"Tokens generated. Time: " << (double)(clock() - start_time) / CLOCKS_PER_SEC - scanner_time << std::endl;
  
 
-    std::cout << "Generated text files\n";
-    symbol_table.writeToFile("output/symbol_table_"+ ROLL_NO +std::string(input_filename)+".txt");
-    literal_table.writeToFile("output/literal_table_" + ROLL_NO +std::string(input_filename)+ +".txt");
+    
+    symbol_table.writeToFile("output/symbol_table_"+ ROLL_NO +".txt");
+    literal_table.writeToFile("output/literal_table_" + ROLL_NO +".txt");
+    std::cout << "----------Generated Lexer Output files---------\n";
+
+    std::cout << "----------Parser----------\n";
+    Parser parser(token_stream);
+
+    parser.programme();
 
     return EXIT_SUCCESS;    
 }

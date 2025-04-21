@@ -1,0 +1,37 @@
+Programme       −>      Type identifier Programme' | ^
+Programme'      −>      ( ArgList ) CompStmt Programme | :: Programme
+Function        −>      Type identifier ( ArgList ) CompStmt
+Arg             −>      Type identifier
+Declaration     −>      Type IdentList ::
+Stmt            −>      NoIfStmt | IfStmt
+NoIfStmt        −>      ForStmt | WhileStmt | Expr :: | CompStmt | Declaration | ReturnStmt | :: 
+ForStmt         −>      for ( OptExpr :: OptExpr :: OptExpr ) Stmt
+OptExpr         −>      Expr | ^
+WhileStmt       −>      while ( Expr ) Stmt
+
+
+IfStmt          −>      Agar (Expr) IfStmt'
+IfStmt'         −>      Stmt | IfElseStmt Wagarna IfStmt''
+IfStmt''        −>      IfNoElseStmt | IfElseStmt
+IfNoElseStmt    −>      Agar (expr) IfNoElseStmt' 
+IfNoElseStmt'   −>      stmt | IfElseStmt Wagarna IfNoElseStmt 
+IfElseStmt      −>      Agar (expr) IfElseStmt Wagarna IfElseStmt  | NoIfStmt
+
+
+CompStmt        −>      { StmtList }
+StmtList        −>      Stmt StmtList | ^
+ReturnStmt      −>      Wapis Expr ::
+Expr            −>      identifier Expr'
+Expr'           −>      := Expr | Rvalue'
+Rvalue          −>      Mag Ravlue'
+Rvalue'         −>      Compare Mag Rvalue' | ^
+Mag             −>      Term Mag' 
+Mag'            −>      + Term Mag' | - Term Mag' | ^
+Term            −>      Factor Term'
+Term'           −>      * Factor Term' | / Factor Term' | ^
+Compare         −>      == | < | > | <= | >= | != | <>
+Factor          −>      ( Expr )| identifier | number
+
+
+
+
